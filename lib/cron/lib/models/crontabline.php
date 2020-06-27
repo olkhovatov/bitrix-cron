@@ -1,16 +1,17 @@
 <?php
+declare(strict_types=1);
 
 namespace Aniart\Main\Cron\Lib\Models;
 
 class CrontabLine
 {
-    protected $line;
-    protected $strSchedule = '';
-    protected $executeLine = null;
+    private $line;
+    private $strSchedule = '';
+    private $executeLine;
 
     public function __construct(string $lineCrontab)
     {
-        // "схлопнуть" пробелы
+        // заменить последовательность пробелов одним
         $lineCrontab = preg_replace('/\s\s+/', ' ', $lineCrontab);
         $this->line = trim($lineCrontab);
 
@@ -26,22 +27,17 @@ class CrontabLine
         $this->executeLine = new ExecuteLine($strExecuteLine);
     }
 
-    /** @return string */
-    public function getStrSchedule()
+    public function getStrSchedule(): string
     {
         return $this->strSchedule;
     }
 
-    /** @return string */
-    public function getLine()
+    public function getLine(): string
     {
         return $this->line;
     }
 
-    /**
-     * @return ExecuteLine|null
-     */
-    public function getExecuteLine()
+    public function getExecuteLine(): ExecuteLine
     {
         return $this->executeLine;
     }

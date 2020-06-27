@@ -1,8 +1,11 @@
 <?php
+declare(strict_types=1);
 
 namespace Aniart\Main\Cron\Lib\Models;
 
-abstract class AbstractTask
+use Aniart\Main\Cron\Lib\Interfaces\TaskInterface;
+
+abstract class AbstractTask implements TaskInterface
 {
     protected $name;
     protected $arguments;
@@ -13,18 +16,16 @@ abstract class AbstractTask
     {
         $this->name = $taskName;
         $this->arguments = $arguments;
+        //TODO Сделать проверку, что в $arguments массив строк(string[])
     }
 
-    /**
-     * @return string
-     */
-    public function getName()
+    public function getName(): string
     {
         return $this->name;
     }
 
     /**
-     * @return array
+     * @return string[]
      */
     public function getArguments(): array
     {

@@ -1,23 +1,31 @@
 <?php
+declare(strict_types=1);
 
 namespace Aniart\Main\Cron\Lib\Models;
 
 use Aniart\Main\Cron\Lib\Exceptions;
+use Aniart\Main\Cron\Lib\Interfaces\TaskInterface;
 use Aniart\Main\Cron\Lib\Repositories\TaskRepository;
 use Aniart\Main\Cron\Lib\Services\RunService;
 use Aniart\Main\Cron\Lib\Services\TaskService;
-use Aniart\Main\Cron\Lib\Services\TaskStatusService;
+use Aniart\Main\Cron\Lib\Repositories\StatusRepository;
+use Aniart\Main\Cron\Lib\Repositories\ProgressRepository;
 
 class TaskSequence extends AbstractTask
 {
-    protected $taskConfig;
-    protected $taskService;
-    protected $runService;
+    private $taskConfig;
+    private $taskService;
+    private $progressRepository;
+    private $runService;
+    private $statusRepository;
+
     public function __construct(string $taskName, array $arguments)
     {
         parent::__construct($taskName, $arguments);
         $this->runService = RunService::getInstance();
         $this->taskService = TaskService::getInstance();
+        $this->progressRepository = ProgressRepository::getInstance();
+        $this->statusRepository = StatusRepository::getInstance();
         $this->taskConfig = $this->taskService->getConfig($taskName);
     }
 
@@ -34,31 +42,38 @@ class TaskSequence extends AbstractTask
         }
 
         foreach ($subTaskList as $oneTask) {
-            $this->runService->getTaskStatus($oneTask)->clear();
+            $oneTaskStatus = $this->statusRepository->getNew($oneTask->getName());
+            $this->statusRepository->save($oneTaskStatus);
         }
+
+        $progressTaskSequence = $this->progressRepository->getNew($this->getName());
         foreach ($subTaskList as $oneTask) {
             $oneTaskName = $oneTask->getName();
-            $this->taskService->setProgress($this, "{$oneTaskName} старт");
-            $this->taskService->setProgress($oneTask, "старт");
-            $oneTaskStatus = $this->runService->getTaskStatus($oneTask);
-            $oneTaskStartTime = microtime(true);
-            $oneTaskStatus
-                ->setStatus(TaskStatusService::STATUS_RUN)
-                ->initTimeBegin();
-            $oneTask->run();
-            $oneTaskStopTime = microtime(true);
-            $time = round($oneTaskStopTime - $oneTaskStartTime, 1); // c
-            $oneTaskStatus
-                ->setStatus(TaskStatusService::STATUS_COMPLETED)
-                ->setTimeDuration($time);
+            $progressOneTask = $this->progressRepository->getNew($oneTaskName);
 
-            $this->taskService->setProgress($this, "{$oneTaskName} стоп");
-            $this->taskService->setProgress($oneTask, '');
+            $progressTaskSequence->setMessage("{$oneTaskName} старт");
+            $this->progressRepository->save($progressTaskSequence);
+
+            $progressOneTask->setMessage("старт");
+            $this->progressRepository->save($progressOneTask);
+
+            $oneTaskStatus = $this->statusRepository->getNew($oneTask->getName());
+            $this->statusRepository->save($oneTaskStatus);
+            $oneTask->run();
+            $oneTaskStatus->setStatusCompleted();
+            $oneTaskStatus->setMicroTimeEnd(microtime(true));
+            $this->statusRepository->save($oneTaskStatus);
+
+            $progressTaskSequence->setMessage("{$oneTaskName} стоп");
+            $this->progressRepository->save($progressTaskSequence);
+
+            $progressOneTask->setMessage('');
+            $this->progressRepository->save($progressOneTask);
         }
     }
 
     /**
-     * @return AbstractTask[]|array
+     * @return TaskInterface[]
      * @throws Exceptions\SequenceLoopException
      */
     public function getSubTaskList()
@@ -68,7 +83,7 @@ class TaskSequence extends AbstractTask
         $taskList = [];
         $taskName = $this->getName();
         array_push($taskNamesStack, $taskName);
-        foreach ($this->taskGetConfig()->getSubTaskNamesList() as $oneTaskName) {
+        foreach ($this->taskConfig->getSubTaskNamesList() as $oneTaskName) {
             if (in_array($oneTaskName, $taskNamesStack)) {
                 $errorMsg = 'Петля: ' . implode(' ,', $taskNamesStack) . $oneTaskName;
                 $taskNamesStack = [];
@@ -77,10 +92,10 @@ class TaskSequence extends AbstractTask
             $oneTask = TaskRepository::getInstance()->getByName($oneTaskName);
             if ($oneTask) {
                 $oneTaskConfig = TaskService::getInstance()->getConfig($oneTaskName);
-                if($oneTaskConfig->isTaskSequence()){
+                if ($oneTaskConfig->isTaskSequence()) {
                     $subTasksList = $oneTask->getSubTaskList();
                     $taskList = array_merge($taskList, $subTasksList);
-                }else{
+                } else {
                     $taskList[] = $oneTask;
                 }
             } else {
@@ -92,11 +107,4 @@ class TaskSequence extends AbstractTask
         return $taskList;
     }
 
-    /**
-     * @return TaskConfig
-     */
-    public function taskGetConfig()
-    {
-        return $this->taskConfig;
-    }
 }

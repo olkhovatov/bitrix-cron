@@ -1,46 +1,36 @@
 <?php
+declare(strict_types=1);
 
 namespace Aniart\Main\Cron\Lib;
 
-use Aniart\Main\Cron\Config;
-use Aniart\Main\Cron\Lib\Models\AbstractTask;
-use Aniart\Main\Cron\Lib\Services\TaskStatusService;
+use Aniart\Main\Cron\Lib\Interfaces\TaskInterface;
+use Aniart\Main\Cron\Lib\Repositories\StatusRepository;
+use Aniart\Main\Cron\Lib\Repositories\ProgressRepository;
 use Aniart\Main\Cron\Lib\Services\TaskService;
 use Aniart\Main\Cron\Lib\Services\RunService;
 use Aniart\Main\Cron\Lib\Exceptions;
 use Psr\Log\LoggerInterface;
-use CUser;
 use Throwable;
 
 class Starter
 {
-    /** @var  TaskService $taskService */
-    protected $taskService;
-    /** @var  RunService $taskService */
-    protected $runService;
-    /** @var  LoggerInterface $logger */
-    protected $logger = null;
+    private $taskService;
+    private $runService;
+    private $logger;
+    private $statusRepository;
+    private $progressRepository;
 
-    public function __construct()
+    public function __construct(LoggerInterface $logger = null)
     {
         $this->taskService = TaskService::getInstance();
         $this->runService = RunService::getInstance();
-        $this->logger = new CronLogger(Config::DIR_LOG . '/starter.log');
+        $this->statusRepository = StatusRepository::getInstance();
+        $this->progressRepository = ProgressRepository::getInstance();
+        $this->logger = $logger;
     }
 
-    public function taskLog($message)
+    public function runTask(TaskInterface $task)
     {
-        if($this->logger){
-            $this->logger->info($message);
-        }
-    }
-
-    /**
-     * @param AbstractTask $task
-     */
-    public function runTask(AbstractTask $task)
-    {
-        /** @var CUser $USER */
         global $USER;
 
         $taskName = $task->getName();
@@ -51,7 +41,7 @@ class Starter
         if ($userId > 0) {
             if ($USER) {
                 $authResult = $USER->Authorize($userId);
-                if(!$authResult){
+                if (!$authResult) {
                     $this->runService->removeRunTrigger($task);
                     $errMsg = "{$taskName}: Пропуск. Ошибка авторизации userId={$userId}";
                     $this->taskLog($errMsg);
@@ -62,44 +52,49 @@ class Starter
 
         if ($this->runService->lockTask($task)) {
             $startTime = microtime(true);
-            $taskStatus = new TaskStatusService($task);
-
+            $status = $this->statusRepository->getNew($task->getName());
+            $progress = $this->progressRepository->getNew($task->getName());
             $errMsg = '';
             try {
-                $taskStatus
-                    ->setStatus(TaskStatusService::STATUS_RUN)
-                    ->initTimeBegin();
-                $this->taskService->setProgress($task, "{$taskName}: Старт");
+                $status->setStatusRun();
+                $this->statusRepository->save($status);
+                $progress->setMessage("{$taskName}: Старт");
+                $this->progressRepository->save($progress);
                 $this->taskLog("{$taskName}: Старт");
                 // Удаляем триггер запуска непосредственно перед запуском.
                 // Пока выполняется задача возможно установить новый триггер на запуск
                 $this->runService->removeRunTrigger($task);
                 $task->run();
-                $taskStatus->setStatus(TaskStatusService::STATUS_COMPLETED);
+                $status->setStatusCompleted();
+                $this->statusRepository->save($status);
             } catch (Exceptions\SequenceLoopException $e) {
                 $this->runService->removeRunTrigger($task);
                 $errMsg = $e->getMessage();
-                $taskStatus->setErrorMessage($errMsg);
+                $status->setStatusErrorMessage($errMsg);
+                $this->statusRepository->save($status);
             } catch (Exceptions\SequenceBusyException $e) {
                 // тут файл-триггер не удаляем. Попробуем запустить на следующем тике.
-                $taskStatus->setStatus(TaskStatusService::STATUS_WAIT);
+                $status->setStatusWait();
+                $this->statusRepository->save($status);
                 $this->taskLog("{$taskName}: Запуск отложен");
             } catch (Throwable $e) {
                 $this->runService->removeRunTrigger($task);
                 $errMsg = "{$taskName}: " . strval($e);
             } finally {
                 $this->runService->unlockTask($task);
+                $memoryPeak = round(memory_get_peak_usage() / 1024 / 1024, 1); // Mb
                 $stopTime = microtime(true);
                 $time = round($stopTime - $startTime, 1); // c
-                $memoryPeak = round(memory_get_peak_usage() / 1024 / 1024, 1); // Mb
-                $taskStatus
-                    ->setTimeDuration($time)
-                    ->setMemoryPeak($memoryPeak);
+                $status->setMicroTimeEnd(microtime(true));
+                $status->setMemory($memoryPeak);
+                $this->statusRepository->save($status);
                 if (strlen($errMsg) > 0) {
-                    $taskStatus->setErrorMessage($errMsg);
+                    $status->setStatusErrorMessage($errMsg);
+                    $this->statusRepository->save($status);
                     $this->taskLog($errMsg);
                 }
-                $this->taskService->setProgress($task, '');
+                $progress->setMessage('');
+                $this->progressRepository->save($progress);
                 $this->taskLog("{$taskName}: Стоп time:{$time}c, memory:{$memoryPeak}Mb");
             }
         } else {
@@ -108,4 +103,10 @@ class Starter
 
     }
 
+    private function taskLog($message)
+    {
+        if ($this->logger) {
+            $this->logger->info($message);
+        }
+    }
 }

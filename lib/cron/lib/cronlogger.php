@@ -8,7 +8,8 @@ use Psr\Log\LogLevel;
 
 class CronLogger implements LoggerInterface
 {
-    protected $logFileName;
+    private $logFileName;
+
     public function __construct(string $logFileName)
     {
         $this->logFileName = trim($logFileName);

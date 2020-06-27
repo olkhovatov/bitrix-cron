@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
 
 namespace Aniart\Main\Cron\Lib;
 
@@ -9,9 +10,9 @@ use Aniart\Main\Cron\Lib\Services\RunService;
 
 class Tick
 {
-    protected $taskService;
-    protected $runService;
-    protected $taskRepository;
+    private $taskService;
+    private $runService;
+    private $taskRepository;
 
     public function __construct()
     {

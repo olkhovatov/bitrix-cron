@@ -6,7 +6,7 @@ namespace Aniart\Main\Cron\Tasks\Example;
 use Aniart\Main\Cron\Lib\Repositories\ProgressRepository;
 use Aniart\Main\Cron\Lib\Models\AbstractTask;
 
-class Task1 extends AbstractTask
+class Task2 extends AbstractTask
 {
     private $progressRepository;
 
@@ -25,7 +25,7 @@ class Task1 extends AbstractTask
             $strArguments = implode(' ', $this->getArguments());
             $progress->setMessage("args: {$strArguments}, i:{$i}");
             $this->progressRepository->save($progress);
-            sleep(10);
+            sleep(4);
         }
         $progress->setMessage('taskRun end');
         $this->progressRepository->save($progress);

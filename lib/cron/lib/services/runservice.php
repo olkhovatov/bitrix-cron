@@ -1,28 +1,33 @@
 <?php
+declare(strict_types=1);
 
 namespace Aniart\Main\Cron\Lib\Services;
 
-use Aniart\Main\Cron\Config;
+use Aniart\Main\Cron\Lib\Interfaces\TaskInterface;
 use Aniart\Main\Cron\Lib\Models\ExecuteLine;
-use Aniart\Main\Cron\Lib\Models\AbstractTask;
 use Aniart\Main\Cron\Lib\Repositories\TaskRepository;
 use Aniart\Main\Cron\Lib\Tools;
+use Aniart\Main\Cron\Lib\Exceptions\AccessControlException;
 use Exception;
 
 class RunService
 {
     const DIR_WAIT_RUN_TRIGGER = '/wait_run';
     const DIR_LOCK = '/lock';
-    const DIR_STATUS = '/status';
 
-    protected static $instanceObject = null;
-    /** @var  TaskRepository $taskRepository*/
-    protected $taskRepository;
-    protected $taskLockFileHandlers = [];
+    private static $instanceObject = null;
+    private $taskRepository;
+    private $taskLockFileHandlers = [];
 
-    protected function __construct()
+    /**
+     * RunService constructor.
+     * @throws AccessControlException
+     */
+    private function __construct()
     {
         $this->taskRepository = TaskRepository::getInstance();
+        Tools::makeDirPath($this->getDirTrigger());
+        Tools::makeDirPath($this->getDirLock());
     }
 
     /** @return $this */
@@ -52,11 +57,11 @@ class RunService
     }
 
     /**
-     * @param AbstractTask $task
+     * @param TaskInterface $task
      * @return $this
      * @throws Exception
      */
-    public function runTask(AbstractTask $task)
+    public function runTask(TaskInterface $task)
     {
         $cmd = $this->buildRunCommand($task);
         if (function_exists('exec')) {
@@ -84,10 +89,10 @@ class RunService
 
     /**
      * Удалить файл-триггер, чтоб задача не запустилась на следующем тике
-     * @param AbstractTask $task
+     * @param TaskInterface $task
      * @return $this
      */
-    public function removeRunTrigger(AbstractTask $task)
+    public function removeRunTrigger(TaskInterface $task)
     {
         $triggerFileName = $this->getTriggerFileName($task);
         if (file_exists($triggerFileName)) {
@@ -98,10 +103,10 @@ class RunService
 
     /**
      * Заблокировать задачу, запретить повторный запуск
-     * @param AbstractTask $task
+     * @param TaskInterface $task
      * @return bool
      */
-    public function lockTask(AbstractTask $task)
+    public function lockTask(TaskInterface $task)
     {
         $result = false;
         $lockFileName = $this->getLockFileName($task);
@@ -122,7 +127,7 @@ class RunService
 
     /**
      * Заблокировать все задачи последовательности
-     * @param AbstractTask[] $taskSequence
+     * @param TaskInterface[] $taskSequence
      * @return bool
      */
     public function lockTasksSequence(array $taskSequence)
@@ -149,10 +154,9 @@ class RunService
 
     /**
      * Разблокировать задачу, разрешить запуск(только для блокированных в этом процессе)
-     * @param AbstractTask $task
-     * @return $this
+     * @param TaskInterface $task
      */
-    public function unlockTask(AbstractTask $task)
+    public function unlockTask(TaskInterface $task)
     {
         $taskName = $task->getName();
         $lockFileHandler = $this->taskLockFileHandlers[$taskName];
@@ -164,127 +168,59 @@ class RunService
             unlink($lockFileName);
         }
         unset($this->taskLockFileHandlers[$taskName]);
-        return $this;
     }
 
-    /**
-     * @param TaskStatusService $status
-     * @return $this
-     */
-    public function saveStatus(TaskStatusService $status)
-    {
-        $taskName = $status->getTaskName();
-        $task = $this->taskRepository->getByName($taskName);
-        $statusFileName = $this->getTaskStatusFileName($task);
-        file_put_contents($statusFileName, serialize($status));
-        return $this;
-    }
-
-    /**
-     * @param AbstractTask $task
-     * @return TaskStatusService|bool
-     */
-    public function getTaskStatus(AbstractTask $task)
-    {
-        $statusFileName = $this->getTaskStatusFileName($task);
-        $status = $this->getStatusFromFile($statusFileName);
-        if(!$status){
-            $status = new TaskStatusService($task);
-        }
-        return $status;
-    }
-
-    /**
-     * @param AbstractTask $task
-     * @return string
-     */
-    public function getTaskStatusFileName(AbstractTask $task)
-    {
-        $taskName = $task->getName();
-        $fileName = Config::DIR_VAR . self::DIR_STATUS . "/{$taskName}.status";
-        Tools::makeDirPath($fileName);
-        return $fileName;
-    }
-
-    /**
-     * @param AbstractTask $task
-     * @return string
-     */
-    public function buildStrExecuteLine(AbstractTask $task)
+    public function buildStrExecuteLine(TaskInterface $task): string
     {
         return implode(' ', array_merge([$task->getName()], $task->getArguments()));
     }
 
-    /**
-     * @param AbstractTask $task
-     * @return string
-     */
-    protected function buildRunCommand(AbstractTask $task)
+    private function buildRunCommand(TaskInterface $task): string
     {
-        $cmd = '';
-        $cmd .= implode(' ',
+        $cmd = implode(' ',
             [
-                Config::PHP,
+                PHP_BINARY,
                 '-f',
-                Config::STARTER_SCRIPT,
+                Tools::getStarterScriptName(),
                 $this->buildStrExecuteLine($task),
                 '> /dev/null 2>&1 &'
             ]
         );
         $taskName = $task->getName();
         $taskConfig = TaskService::getInstance()->getConfig($taskName);
-        if($taskConfig->isLowPriority()){
+        if ($taskConfig->isLowPriority()) {
             $cmd = 'ionice -c3 nice -n 19 ' . $cmd;
         }
         return $cmd;
     }
 
-    /**
-     * @param AbstractTask $task
-     */
-    protected function createRunTrigger(AbstractTask $task)
+    private function createRunTrigger(TaskInterface $task)
     {
         $triggerFileName = $this->getTriggerFileName($task);
         $strExecuteLine = $this->buildStrExecuteLine($task);
         file_put_contents($triggerFileName, $strExecuteLine);
     }
 
-    /**
-     * @param AbstractTask $task
-     * @return string
-     */
-    protected function getTriggerFileName(AbstractTask $task)
+    private function getTriggerFileName(TaskInterface $task): string
     {
         $taskName = $task->getName();
-        $fileName = Config::DIR_VAR . self::DIR_WAIT_RUN_TRIGGER . "/{$taskName}.run";
-        Tools::makeDirPath($fileName);
-        return $fileName;
+        return $this->getDirTrigger() . "/{$taskName}.run";
     }
 
-    /**
-     * @param AbstractTask $task
-     * @return string
-     */
-    protected function getLockFileName(AbstractTask $task)
+    private function getLockFileName(TaskInterface $task): string
     {
         $taskName = $task->getName();
-        $fileName = Config::DIR_VAR . self::DIR_LOCK . "/{$taskName}.lock";
-        Tools::makeDirPath($fileName);
-        return $fileName;
+        return $this->getDirLock() . "/{$taskName}.lock";
     }
 
-    /**
-     * @param string $fileName
-     * @return TaskStatusService|bool
-     */
-    protected function getStatusFromFile(string $fileName)
+    private function getDirTrigger()
     {
-        $result = false;
-        $status = unserialize(file_get_contents($fileName));
-        if ($status instanceof TaskStatusService) {
-            $result = $status;
-        }
-        return $result;
+        return Tools::getDirVar() . self::DIR_WAIT_RUN_TRIGGER;
+    }
+
+    private function getDirLock()
+    {
+        return Tools::getDirVar() . self::DIR_LOCK;
     }
 
 }

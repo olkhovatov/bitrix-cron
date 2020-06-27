@@ -7,7 +7,4 @@ if (strtolower(php_sapi_name()) != 'cli') {
 }
 
 require_once 'init.php';
-require($_SERVER["DOCUMENT_ROOT"] . '/bitrix/modules/main/include/prolog_before.php');
-
-$tick = new Tick();
-$tick->tick();
+(new Tick())->tick();

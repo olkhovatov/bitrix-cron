@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
 
 namespace Aniart\Main\Cron\Lib\Services;
 
@@ -6,25 +7,14 @@ use Cron\CronExpression;
 use Aniart\Main\Cron\Config;
 use Aniart\Main\Cron\Lib\Models\CrontabLine;
 use DateTime;
+use Exception;
 
 class CrontabService
 {
-    /** @return CrontabLine[] */
-    public static function getCrontabLines()
-    {
-        $result = [];
-        if (is_array(Config::CRONTAB)) {
-            $result = array_map(function ($line) {
-                return new CrontabLine(trim($line));
-            }, Config::CRONTAB);
-        }
-        return $result;
-    }
-
     /**
      * @return string[]
      */
-    public static function getTaskNamesTimeStart()
+    public static function getTaskNamesTimeStart(): array
     {
         $result = [];
         foreach (self::getCrontabLines() as $crontabLine) {
@@ -48,8 +38,8 @@ class CrontabService
     public static function getCrontabLine(string $taskName)
     {
         $result = false;
-        foreach(self::getCrontabLines() as $crontabLine){
-            if($crontabLine->getExecuteLine()->getTaskName() == $taskName){
+        foreach (self::getCrontabLines() as $crontabLine) {
+            if ($crontabLine->getExecuteLine()->getTaskName() == $taskName) {
                 $result = $crontabLine;
                 break;
             }
@@ -60,6 +50,7 @@ class CrontabService
     /**
      * @param CrontabLine $crontabLine
      * @return bool|DateTime
+     * @throws Exception
      */
     public static function getTimeNextRun(CrontabLine $crontabLine)
     {
@@ -72,4 +63,15 @@ class CrontabService
         return $result;
     }
 
+    /** @return CrontabLine[] */
+    private static function getCrontabLines(): array
+    {
+        $result = [];
+        if (is_array(Config::CRONTAB)) {
+            $result = array_map(function ($line) {
+                return new CrontabLine(trim($line));
+            }, Config::CRONTAB);
+        }
+        return $result;
+    }
 }

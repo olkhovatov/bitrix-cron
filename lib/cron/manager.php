@@ -1,12 +1,15 @@
 <?php
+declare(strict_types=1);
 
 namespace Aniart\Main\Cron;
 
 use Aniart\Main\Cron\Lib\Models\ExecuteLine;
-use Aniart\Main\Cron\Lib\Services\TaskService;
-use Aniart\Main\Cron\Lib\Services\TaskStatusService;
+use Aniart\Main\Cron\Lib\Models\Status;
+use Aniart\Main\Cron\Lib\Models\Progress;
+use Aniart\Main\Cron\Lib\Repositories\ProgressRepository;
+use Aniart\Main\Cron\Lib\Repositories\StatusRepository;
 use Aniart\Main\Cron\Lib\Services\RunService;
-use Aniart\Main\Cron\Lib\Repositories\TaskRepository;
+use Exception;
 
 class Manager
 {
@@ -18,7 +21,6 @@ class Manager
     public static function addToRun(string $strExecute)
     {
         $strExecute = trim($strExecute);
-        //RunService::getInstance()->addToRun($strExecute);
         RunService::getInstance()->addToRun(new ExecuteLine($strExecute));
     }
 
@@ -27,6 +29,7 @@ class Manager
      * Если по каким-то причинам запуск отложен/пропущен, то больше не будет попыток запуска.
      * Запустится в отдельном процессе
      * @param string $strExecute
+     * @throws Exception
      */
     public static function runTaskNow(string $strExecute)
     {
@@ -34,32 +37,14 @@ class Manager
         RunService::getInstance()->runTaskImmediately($strExecute);
     }
 
-    /**
-     * @param $taskName
-     * @return string
-     */
-    public static function getProgress(string $taskName)
+    public static function getProgress(string $taskName): Progress
     {
-        $result = '';
-        $task = TaskRepository::getInstance()->getByName($taskName);
-        if ($task) {
-            $result = TaskService::getInstance()->getProgress($task);
-        }
-        return $result;
+        return ProgressRepository::getInstance()->getByTaskName($taskName);
     }
 
-    /**
-     * @param string $taskName
-     * @return TaskStatusService|bool
-     */
-    public static function getStatus(string $taskName)
+    public static function getStatus(string $taskName): Status
     {
-        $result = false;
-        $task = TaskRepository::getInstance()->getByName($taskName);
-        if ($task) {
-            $result = RunService::getInstance()->getTaskStatus($task);
-        }
-        return $result;
+        return StatusRepository::getInstance()->getByTaskName($taskName);
     }
 
 }
